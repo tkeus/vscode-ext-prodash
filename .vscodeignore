@@ -1,0 +1,29 @@
+# Exclude build scripts and local data
+esbuild.js
+.prodash/**
+*.vsix
+
+# Exclude source if not needed
+src/**
+test/**
+*.spec.*
+**/*.map
+**/*.ts
+
+# Exclude other unnecessary files
+.vscode/**
+.git/**
+.node_modules
+out
+package-lock.json
+yarn-error.log
+yarn-debug.log
+.gitignore
+out/**
+
+
+.yarnrc
+webpack.config.js
+**/tsconfig.json
+**/eslint.config.mjs
+**/.vscode-test.*

@@ -1,0 +1,142 @@
+{
+  "name": "vscode-prodash",
+  "displayName": "prodash",
+  "description": "ProDash - My Project Dashboard and Scripts Runner",
+  "icon": "prodash.ico",
+  "version": "0.0.1",
+  "publisher": "thierry-keus",
+  "author": {
+    "name": "Thierry Keus" 
+  },
+  "pricing": "Free",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/prodash.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prodash-sidebar",
+          "title": "ProDash",
+          "icon": "media/prodash.svg"
+        }
+      ]
+    },
+    "views": {
+      "dashboardSidebar": [
+        {
+          "id": "prodash.projectsView",
+          "name": "ProDash",
+          "icon": "media/prodash.svg",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "prodash.editProjectsJson",
+        "title": "Edit Prodash Groups",
+        "icon": {
+          "light": "media/edit-light.svg",
+          "dark": "media/edit-dark.svg"
+        }
+      },
+      {
+        "command": "prodash.refreshProjects",
+        "title": "Refresh",
+        "icon": {
+          "light": "media/refresh-light.svg",
+          "dark": "media/refresh-dark.svg"
+        }
+      },
+      {
+        "command": "prodash.editScriptsJson",
+        "title": "Edit Scripts",
+        "icon": {
+          "light": "media/edit-light.svg",
+          "dark": "media/edit-dark.svg"
+        }
+      },
+      {
+        "command": "prodash.runScript",
+        "title": "Execute",
+        "icon": {
+          "light": "media/run-light.svg",
+          "dark": "media/run-dark.svg"
+        }
+      },
+      {
+        "command": "prodash.openFolder",
+        "title": "Open",
+        "icon": {
+          "light": "media/folder-light.svg",
+          "dark": "media/folder-dark.svg"
+        }
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "prodash.refreshProjects",
+          "when": "view == prodash.projectsView",    
+          "group": "navigation@1"
+        },
+        {
+          "command": "prodash.editProjectsJson",
+          "when": "view == prodash.projectsView"    
+        },
+        {
+          "command": "prodash.editScriptsJson",
+          "when": "view == prodash.projectsView"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "prodash.runScript",
+          "when": "view == prodash.projectsView && viewItem == Script",
+          "group": "inline"
+        },
+        {
+          "command": "prodash.openFolder",
+          "when": "view == prodash.projectsView && viewItem == Project",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "npm run check-types && node esbuild.js",
+    "check-types": "tsc --noEmit",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "vscode:prepublish": "npm run package",
+    "package": "npm run check-types && node esbuild.js --production",
+    "vsce:package": "vsce package",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.100.0",
+    "@typescript-eslint/eslint-plugin": "^8.31.1",
+    "@typescript-eslint/parser": "^8.31.1",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.5.0",
+    "esbuild": "^0.25.5",
+    "eslint": "^9.25.1",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.8.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tkeus/vscode-ext-prodash.git"
+  },
+  "homepage": ""
+}
