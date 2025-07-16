@@ -25,7 +25,7 @@ ProDash is a Visual Studio Code extension that provides a powerful project dashb
 
 ## Screenshots
 
-!ProDash Screenshot 1
+![ProDash Screenshot 1](media/screenshot-1.png)
 
 ---
 
