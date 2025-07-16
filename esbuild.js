@@ -8,6 +8,7 @@ async function main() {
     entryPoints: ['src/prodash.ts'],
     bundle: true,
     format: 'cjs',
+    mainFields: ['module', 'main'], // fix the bundling issue with `jsonc-parser`
     minify: production,
     sourcemap: !production,
     sourcesContent: false,

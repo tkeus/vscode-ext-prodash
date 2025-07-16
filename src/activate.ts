@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { ExtensionContextService } from './services/extension-context.service';
 import { showTextFileEditor } from './show-text-file-editor';
 import { ProjectsTreeNodesProvider } from './services/project-tree-nodes-provider.Service';
+import { LoggingService } from './services/logging.service';
+import { FileWatcherService } from './services/file-watcher.service';
 
 /**
  * Called when the extension is activated.
@@ -12,8 +14,6 @@ export function activate(context: vscode.ExtensionContext) {
   new ExtensionContextService(context);
   ExtensionContextService.instance.projectsTreeNodesProvider = new ProjectsTreeNodesProvider();
 
-  context.subscriptions.push(vscode.window.registerTreeDataProvider('prodash.projectsView',
-    ExtensionContextService.instance.projectsTreeNodesProvider));
   context.subscriptions.push(vscode.window.createTreeView('prodash.projectsView',
     { treeDataProvider: ExtensionContextService.instance.projectsTreeNodesProvider }));
 
@@ -26,12 +26,13 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(vscode.commands.registerCommand('prodash.openFolder',
     (resource) => { ExtensionContextService.instance.projectsTreeNodesProvider?.openFolder(resource); }));
   context.subscriptions.push(vscode.commands.registerCommand('prodash.editProjectsJson',
-    () => { showTextFileEditor(ExtensionContextService.instance.groupsJsonPath); }));
+    () => { showTextFileEditor(ExtensionContextService.instance.projectsJsonPath); }));
 }
 
 /**
  * Called when the extension is deactivated.
  */
 export function deactivate() {
-  
+  FileWatcherService.instance.dispose();
+  LoggingService.instance.dispose();
 }

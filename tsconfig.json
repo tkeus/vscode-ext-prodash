@@ -1,7 +1,11 @@
 {
+	// This line helps your editor provide auto-completion and validation for this file.
+	// It ensures that new options like "moduleResolution": "bundler" are recognized.
+	"$schema": "https://json.schemastore.org/tsconfig",
 	"compilerOptions": {
-		"module": "commonjs",
+		"module": "ESNext",
 		"target": "ES2022",
+		"moduleResolution": "bundler",
 		"lib": [
 			"ES2022"
 		],

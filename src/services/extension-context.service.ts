@@ -1,13 +1,16 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import * as path from 'path';
+import * as fs from 'fs';
 import * as os from 'os';
 import { ProjectsTreeNodesProvider } from './project-tree-nodes-provider.Service';
-import { proDashFolderName, groupsJsonFileName, scriptsJsonFileName } from '../constants';
-import { ProjectGroup, ProjectGroupConfiguration } from '../models/project-group.model';
-import { Project } from '../models/project.model';
-import { ScriptGroup, ScriptGroupConfiguration } from '../models/script-group.model';
+import { proDashFolderName, projectsJsonFileName, projectsJsoncFileName, scriptsJsonFileName, scriptsJsoncFileName } from '../constants';
+import { Project, ProjectConfiguration } from '../models/project.model';
 import { ProDashTreeNodeProvider } from '../models/tree-node-provider';
+import { DynamicGroup } from '../models/dynamic-group.model';
+import { ConfigurationService } from './configuration.service';
+import { ScriptConfiguration } from '../models/script.model';
+import { FileWatcherService } from './file-watcher.service';
+import { LoggingService } from './logging.service';
 
 /*******************************************************************************
 
@@ -17,18 +20,24 @@ import { ProDashTreeNodeProvider } from '../models/tree-node-provider';
 
 *******************************************************************************/
 
-export class ExtensionContextService extends ProDashTreeNodeProvider<ProjectGroup> {
+export class ExtensionContextService extends ProDashTreeNodeProvider<DynamicGroup<Project> | Project> {
+  /** The display name for the root node. Required by ProDashTreeItem, but not displayed. */
+  name: string = 'ProDash Root';
+
   /** Provider for the project tree nodes in the VS Code UI. */
   public projectsTreeNodesProvider: ProjectsTreeNodesProvider | undefined;
 
   /** Singleton instance of the ExtensionContextService. */
   private static _instance: ExtensionContextService;
 
-  /** List of all project groups loaded from groups.json. */
-  private _projectGroups: ProjectGroup[] = [];
+  /** Tracks projects for which ON_ACTIVATE scripts have already run this session. */
+  private _onActivateScriptsRun = new Set<string>();
 
-  /** Full path to the groups.json configuration file. */
-  private _groupsJsonPath: string = '';
+  /** List of all top-level nodes (groups or projects) loaded from groups.json. */
+  private _topLevelNodes: (DynamicGroup<Project> | Project)[] = [];
+
+  /** Full path to the projects configuration file. */
+  private _projectsJsonPath: string = '';
 
   /** Path to the current workspace folder. */
   private _workSpaceFolder: string = '';
@@ -65,8 +74,8 @@ export class ExtensionContextService extends ProDashTreeNodeProvider<ProjectGrou
   }
 
   /** Gets the list of all project groups. */
-  get projectGroups(): ProjectGroup[] {
-    return this._projectGroups;
+  get topLevelNodes(): (DynamicGroup<Project> | Project)[] {
+    return this._topLevelNodes;
   }
 
   /**
@@ -74,69 +83,146 @@ export class ExtensionContextService extends ProDashTreeNodeProvider<ProjectGrou
    * If the current workspace is not registered, adds a "(not registered)" group.
    */
   initializeProjectGroups() {
-    try {
-      this._groupsJsonPath = path.join(os.homedir(), proDashFolderName, groupsJsonFileName);
-      const fileContent = fs.readFileSync(this._groupsJsonPath, 'utf8');
-      const projectGroupsData: ProjectGroupConfiguration[] = JSON.parse(fileContent);
-      this._projectGroups = projectGroupsData.map(g => new ProjectGroup(g));
-    } catch (err) {
-      this._projectGroups = [];
+    FileWatcherService.instance.clear();
+
+    this._topLevelNodes = [];
+    const groups = new Map<string, DynamicGroup<Project>>();
+    
+    const prodashHomeDir = path.join(os.homedir(), proDashFolderName);
+    const projectsJsoncPath = path.join(prodashHomeDir, projectsJsoncFileName);
+    const projectsJsonPath = path.join(prodashHomeDir, projectsJsonFileName);
+
+    let configPathToLoad: string | undefined;
+    let configFileNameToLoad: string | undefined;
+
+    if (fs.existsSync(projectsJsoncPath)) {
+      this._projectsJsonPath = projectsJsoncPath;
+      configPathToLoad = projectsJsoncPath;
+      configFileNameToLoad = projectsJsoncFileName;
+    } else if (fs.existsSync(projectsJsonPath)) {
+      this._projectsJsonPath = projectsJsonPath;
+      configPathToLoad = projectsJsonPath;
+      configFileNameToLoad = projectsJsonFileName;
+    } else {
+      this._projectsJsonPath = projectsJsoncPath;
+    }
+
+    // Watch projects.jsonc for changes and refresh the tree view.
+    const refreshCallback = (uri: vscode.Uri) => this.projectsTreeNodesProvider?.refreshProjects(`'${path.basename(uri.fsPath)}' changed.`);
+    FileWatcherService.instance.watch(this._projectsJsonPath, refreshCallback);
+
+    const projectConfigs = configPathToLoad && configFileNameToLoad
+      ? ConfigurationService.instance.loadConfiguration<(ProjectConfiguration & { group?: string })[]>(configPathToLoad, configFileNameToLoad)
+      : undefined;
+
+    if (projectConfigs) {
+      for (const projectConfig of projectConfigs) {
+        const project = new Project(projectConfig);
+        if (projectConfig.group) {
+          let group = groups.get(projectConfig.group);
+          if (!group) {
+            group = new DynamicGroup<Project>(projectConfig.group, this);
+            groups.set(projectConfig.group, group);
+            this._topLevelNodes.push(group);
+          }
+          group.children.push(project);
+          project.parent = group;
+        } else {
+          project.parent = this;
+          this._topLevelNodes.push(project);
+        }
+      }
     }
 
     let alreadyRegistered = false;
-    if (this.projectGroups) {
-      for (const group of this.projectGroups) {
-        if (group.hasActiveProject) {
-          alreadyRegistered = true;
-          break;
-        }
-      };
+    for (const node of this._topLevelNodes) {
+      if (node instanceof Project && node.isActive) {
+        alreadyRegistered = true;
+        break;
+      }
+      if (node instanceof DynamicGroup && node.children.some(p => p.isActive)) {
+        alreadyRegistered = true;
+        break;
+      }
     }
+
     const wsPath = ExtensionContextService.instance.workSpaceFolder;
     if (wsPath && !alreadyRegistered) { // Current Workspace folder is not registered - Create a "(not registered)" group
-      this.createNotRegisteredGroup();
+      this.addUnregisteredWorkspaceProject();
     }
   }
 
   /**
-   * Creates a "(not registered)" group for the current workspace if it is not already registered.
+   * Adds the current workspace as a temporary, ungrouped project if it's not registered.
    */
-  createNotRegisteredGroup() {
+  addUnregisteredWorkspaceProject() {
     const wsPath = ExtensionContextService.instance.workSpaceFolder;
-    let notRegisteredGroup = this._projectGroups.find(g => g.name === '(not registered)');
-    if (!notRegisteredGroup) {
-      notRegisteredGroup = new ProjectGroup({ name: '(not registered)', projects: [] });
-      this._projectGroups.push(notRegisteredGroup);
-    }
-    // Add the workspace as a project
     const wsProject = new Project({
       name: path.basename(wsPath), path: wsPath,
-      description: `Current workspace folder (not registered in ${groupsJsonFileName})`});
+      description: `Current workspace folder (not registered in ${projectsJsoncFileName})`});
     wsProject.isActive = true;
-    wsProject.parent = notRegisteredGroup;
-    wsProject.parent.hasActiveProject = true;
-    const scriptGroupConfigs = ExtensionContextService.instance.initializeScripts(wsProject);
-    if (scriptGroupConfigs) {
-      wsProject.scriptGroups = scriptGroupConfigs.map(g => new ScriptGroup(g));
+    wsProject.parent = this;
+    this._topLevelNodes.unshift(wsProject); // Add to the top of the list
+  }
+
+  /** Gets the path to the projects configuration file. */
+  get projectsJsonPath(): string {
+    return this._projectsJsonPath;
+  }
+
+  /**
+   * Executes the ON_ACTIVATE event scripts for a given project, ensuring they only run once per session.
+   * @param project The project to run activation scripts for.
+   */
+  public runActivateScriptsForProject(project: Project): void {
+    if (this._onActivateScriptsRun.has(project.path)) {
+      return; // Already run for this project path in this session
     }
 
-    notRegisteredGroup.projects.push(wsProject);
+    const activateScripts = project.getAllScripts().filter(s => s.event === 'ON_ACTIVATE');
+    if (activateScripts.length > 0) {
+      LoggingService.instance.logInfo(`Running ON_ACTIVATE scripts for project '${project.name}'...`);
+      for (const script of activateScripts) {
+        script.execute();
+      }
+      this._onActivateScriptsRun.add(project.path);
+    }
   }
-
-  /** Gets the path to the groups.json configuration file. */
-  get groupsJsonPath(): string {
-    return this._groupsJsonPath;
-  }
-
-  /** Gets the path to the scripts.json file for the active project, if any. */
-  get scriptsJsonPath(): string {
-    if (this.projectGroups) {
-      for(const projects of this.projectGroups) {
-        const project = projects.activeProject;
-        if (project &&  project.proDashPath) {
-          return path.join(project.proDashPath, scriptsJsonFileName);
+  
+  private getActiveProject(): Project | undefined {
+    for (const node of this._topLevelNodes) {
+      if (node instanceof Project && node.isActive) {
+        return node;
+      }
+      if (node instanceof DynamicGroup) {
+        const activeProject = node.children.find(p => p.isActive);
+        if (activeProject) {
+          return activeProject;
         }
       }
+    }
+    return undefined;
+  }
+
+  private _getScriptsPath(proDashPath: string): string | undefined {
+    const scriptsJsoncPath = path.join(proDashPath, scriptsJsoncFileName);
+    if (fs.existsSync(scriptsJsoncPath)) {
+      return scriptsJsoncPath;
+    }
+
+    const scriptsJsonPath = path.join(proDashPath, scriptsJsonFileName);
+    if (fs.existsSync(scriptsJsonPath)) {
+      return scriptsJsonPath;
+    }
+
+    return undefined;
+  }
+
+  /** Gets the path to the scripts configuration file for the active project, if any. */
+  get scriptsJsonPath(): string {
+    const activeProject = this.getActiveProject();
+    if (activeProject?.proDashPath) {
+      return this._getScriptsPath(activeProject.proDashPath) || '';
     }
     return '';
   }
@@ -145,21 +231,20 @@ export class ExtensionContextService extends ProDashTreeNodeProvider<ProjectGrou
    * Loads and returns the script group configurations for a given project.
    * @param project The project to load script groups for.
    */
-  initializeScripts(project: Project): ScriptGroupConfiguration[] {
-    let scriptGroups: ScriptGroupConfiguration[] = [];
-    try {
-      if (project.proDashPath) {
-        let scriptsJsonPath = path.join(project.proDashPath, scriptsJsonFileName);
-        if (fs.existsSync(scriptsJsonPath)) {
-          const fileContent = fs.readFileSync(scriptsJsonPath, 'utf8');
-          scriptGroups = JSON.parse(fileContent);
-        }
+  initializeScripts(project: Project): ScriptConfiguration[] {
+    if (project.proDashPath) {
+      const scriptsPath = this._getScriptsPath(project.proDashPath);
+      if (scriptsPath) {
+        // Watch scripts.jsonc for changes and refresh the tree view.
+        const refreshCallback = (uri: vscode.Uri) => this.projectsTreeNodesProvider?.refreshProjects(`'${path.basename(uri.fsPath)}' in project '${project.name}' changed.`);
+        FileWatcherService.instance.watch(scriptsPath, refreshCallback);
+
+        const scriptConfigs = ConfigurationService.instance.loadConfiguration<ScriptConfiguration[]>(scriptsPath, path.basename(scriptsPath));
+        return scriptConfigs || [];
       }
-    } catch (err) {
-      console.error(`Failed to read ${scriptsJsonFileName}:`, err);
     }
-    return scriptGroups;
-  }
+    return [];
+}
 
   /** Returns the context value for the root node (used for context menus). */
   getContextValue(): string {
@@ -167,8 +252,8 @@ export class ExtensionContextService extends ProDashTreeNodeProvider<ProjectGrou
   }
 
   /** Returns the direct child project groups of the extension context. */
-  getChildNodes(): ProjectGroup[] {
-    return this.projectGroups;
+  getChildNodes(): (DynamicGroup<Project> | Project)[] {
+    return this.topLevelNodes;
   }
   
 }

@@ -2,12 +2,13 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createFolderIfNotExist, createTextFileIfNotExist, findUpDirectoryWithName, isParentPathOf, readFileContents } from '../utils/file-utils';
-import { proDashFolderName, projectDescriptionFileName, scriptsJsonFileName } from '../constants';
+import { proDashFolderName, projectDescriptionFileName, projectLongDescriptionFileName, scriptsJsonFileName } from '../constants';
 import { ExtensionContextService } from '../services/extension-context.service';
-import { ProjectGroup } from './project-group.model';
-import { ScriptGroupConfiguration, ScriptGroup } from './script-group.model';
-import { ProDashTreeNodeProvider } from './tree-node-provider';
+import { Script } from './script.model';
+import { DynamicGroup } from './dynamic-group.model';
+import { ProDashTreeItem, ProDashTreeNodeProvider } from './tree-node-provider';
 import { ProDashNode } from './prodash-node.model';
+import { FileWatcherService } from '../services/file-watcher.service';
 
 /**
  * Represents a project in ProDash.
@@ -17,10 +18,10 @@ export interface ProjectConfiguration {
   name: string;
   path: string;
   description: string;
-  scriptGroups?: ScriptGroupConfiguration[];
+  group?: string;
 }
 
-export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements ProjectConfiguration {
+export class Project extends ProDashTreeNodeProvider<DynamicGroup<Script> | Script> implements ProjectConfiguration {
   /** The display name of the project. */
   name!: string;
 
@@ -30,11 +31,11 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
   /** The project description. */
   description!: string;
 
-  /** The script groups associated with this project. */
-  scriptGroups?: ScriptGroup[];
+  /** The script nodes (groups or ungrouped scripts) for this project. */
+  scriptNodes: (DynamicGroup<Script> | Script)[] = [];
 
   /** The parent project group. */
-  parent?: ProjectGroup;
+  parent?: ProDashTreeItem;
 
   /** Indicates if this project is currently active. */
   isActive?: boolean;
@@ -47,6 +48,9 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
 
   /** The resolved path to the runtime description file for this project. */
   private _descriptionFile?: string;
+
+  /** The resolved path to the runtime long description file for this project. */
+  private _longDescriptionFile?: string;
 
   constructor(data: ProjectConfiguration) {
     super();
@@ -61,18 +65,40 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
     this.initializeProDashPath();
     if (this.proDashPath) {
       this._descriptionFile = path.join(this.proDashPath, projectDescriptionFileName);
+      this._longDescriptionFile = path.join(this.proDashPath, projectLongDescriptionFileName);
+
+      // Watch description files for changes and refresh the tree view.
+      const refreshCallback = (uri: vscode.Uri) => ExtensionContextService.instance.projectsTreeNodesProvider?.refreshProjects(`'${path.basename(uri.fsPath)}' in project '${this.name}' changed.`);
+      FileWatcherService.instance.watch(this._descriptionFile, refreshCallback);
+      FileWatcherService.instance.watch(this._longDescriptionFile, refreshCallback);
     }
 
-    const scriptGroupConfigs = ExtensionContextService.instance.initializeScripts(this);
-    if (scriptGroupConfigs) {
-      this.scriptGroups = scriptGroupConfigs.map(g => new ScriptGroup(g));
+    const scriptConfigs = ExtensionContextService.instance.initializeScripts(this);
+    if (scriptConfigs) {
+      const groups = new Map<string, DynamicGroup<Script>>();
+
+      for (const scriptConfig of scriptConfigs) {
+        const script = new Script(scriptConfig);
+
+        if (scriptConfig.group) {
+          const groupName = scriptConfig.group;
+          let group = groups.get(groupName);
+          if (!group) {
+            group = new DynamicGroup<Script>(groupName, this);
+            groups.set(groupName, group);
+            this.scriptNodes.push(group);
+          }
+          group.children.push(script);
+          script.parent = group;
+        } else {
+          script.parent = this;
+          this.scriptNodes.push(script);
+        }
+      }
     }
-        
-    // forward parenthood + check activeProject contents
-    if (this.scriptGroups) {
-      for (const scriptGroup of this.scriptGroups) {
-        scriptGroup.parent = this;  
-      };
+
+    if (this.isActive) {
+      ExtensionContextService.instance.runActivateScriptsForProject(this);
     }
   }
 
@@ -80,8 +106,16 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
     return readFileContents(this._descriptionFile || '');
   }
 
+  get longDescriptionFromFile(): string {
+    return readFileContents(this._longDescriptionFile || '');
+  }
+
   get descriptionFile(): string | undefined {
     return this._descriptionFile;
+  }
+
+  get longDescriptionFile(): string | undefined {
+    return this._longDescriptionFile;
   }
 
   initializeProDashPath(): void {
@@ -104,8 +138,13 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
       if (this.isActive) {
         this._proDashPath = this._gitPath ? path.join(this._gitPath, proDashFolderName) : path.join(this.path, proDashFolderName);
         createFolderIfNotExist(this._proDashPath);
-        let scriptsJsonFile = path.join(this._proDashPath, scriptsJsonFileName);
-        const template = [{ name: "Sample", scripts: [{ name: "Hello", description: "Hello World", script: ["echo 'Hello World!'"] }] }];
+        const scriptsJsonFile = path.join(this._proDashPath, scriptsJsonFileName);
+        const template = [{
+          name: "Hello",
+          description: "Hello World",
+          script: ["echo 'Hello World!'"],
+          group: "Sample"
+        }];
         createTextFileIfNotExist(scriptsJsonFile, JSON.stringify(template, null, 2));
       }
     }          
@@ -116,16 +155,32 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
     return this._proDashPath;
   }
 
+  /** Returns a flattened list of all scripts in the project, including those in groups. */
+  getAllScripts(): Script[] {
+    const allScripts: Script[] = [];
+    for (const node of this.scriptNodes) {
+      if (node instanceof Script) {
+        allScripts.push(node);
+      } else if (node instanceof DynamicGroup) {
+        allScripts.push(...node.children);
+      }
+    }
+    return allScripts;
+  }
+
   setupTreeNode(projectNode: ProDashNode) {
     if (this.isActive) {
       projectNode.label = `★★★ ${this.name} ★★★`;
     }
-    console.log("label", projectNode.label);
     const moreDescription = this.additionalDescriptionFromFile;
-    console.log("moreDescription", moreDescription);
     projectNode.description = moreDescription ? ' - ' + moreDescription : '';
-    console.log("description", projectNode.description);
-    projectNode.tooltip = moreDescription ? `${this.name}\n${moreDescription}` : this.name;
+    const longDescription = this.longDescriptionFromFile;
+    const tooltipDescription = longDescription || moreDescription;
+    if (tooltipDescription) {
+      projectNode.tooltip = new vscode.MarkdownString(tooltipDescription);
+    } else {
+      projectNode.tooltip = this.name;
+    }
     // Expand if active, otherwise collapsed
     projectNode.collapsibleState = this.isActive ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed;
   }
@@ -134,8 +189,17 @@ export class Project extends ProDashTreeNodeProvider<ScriptGroup> implements Pro
     return 'Project';
   }
 
-  getChildNodes(): ScriptGroup[] {
-    return this.scriptGroups || [];
+  getChildNodes(): (DynamicGroup<Script> | Script)[] {
+    return this.scriptNodes.filter(node => {
+      if (node instanceof Script) {
+        return !node.hidden;
+      }
+      if (node instanceof DynamicGroup) {
+        // A group is visible if it has at least one visible child.
+        return node.getChildNodes().length > 0;
+      }
+      return true;
+    });
   }
 
 }

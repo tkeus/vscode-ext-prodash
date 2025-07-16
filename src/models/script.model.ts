@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
 import { ExtensionContextService } from '../services/extension-context.service';
-import { ScriptGroup } from './script-group.model';
+import { LoggingService } from '../services/logging.service';
+import { TerminalService } from '../services/terminal.service';
 import { ProDashNode } from './prodash-node.model';
 import { ProDashTreeNodeProvider } from './tree-node-provider';
+import { DynamicGroup } from './dynamic-group.model';
+import { Project } from './project.model';
 
 export type TerminalScript = 'batch' | 'powershell' | '';
 
@@ -12,21 +15,20 @@ export type TerminalScript = 'batch' | 'powershell' | '';
  */
 export interface ScriptConfiguration {
   name: string;
-  path: string;
-  description: string;
+  description?: string;
   terminal?: TerminalScript;
   script: string[];
+  group?: string;
+  hidden?: boolean;
+  event?: 'ON_ACTIVATE';
 }
 
 export class Script extends  ProDashTreeNodeProvider<null> implements ScriptConfiguration {
   /** The display name of the script. */
   name!: string;
 
-  /** The path associated with the script (if any). */
-  path!: string;
-
   /** The script description. */
-  description!: string;
+  description?: string;
 
   /** The terminal type for execution ('batch', 'powershell', or ''). */
   terminal?: TerminalScript;
@@ -34,75 +36,120 @@ export class Script extends  ProDashTreeNodeProvider<null> implements ScriptConf
   /** The script lines to execute. */
   script!: string[];
 
-  /** The parent script group for this script. */
-  parent?: ScriptGroup; 
+  /** If true, the script will not be shown in the tree. */
+  hidden?: boolean;
+
+  /** The event that triggers the script's execution. */
+  event?: 'ON_ACTIVATE';
+
+  /** The parent node for this script (either a DynamicGroup or a Project). */
+  parent?: DynamicGroup<Script> | Project;
 
   constructor(data: ScriptConfiguration) {
     super();
     Object.assign(this, data);
   }
 
-  resolveVariable(name: string, script: Script): string {
+  private resolveVariable(name: string): string {
     const context = ExtensionContextService.instance;
-    const project = script.parent?.parent;
+    const project = this.getProject();
+    const fallback = `{{${name}}}`;
 
-    let result = `{{${name}}}`; // do nothing ?
     switch (name) {
         case 'PROJECT_PATH':
-          if (project) {
-            result = project.path || result;
-          }
-          break;
+          return project?.path ?? fallback;
         case 'PRODASH_PATH':
-          if (context && project) {
-            result = project.proDashPath || result;
-          }
-          break;
+          return project?.proDashPath ?? fallback;
         case 'DESCRIPTION_FILE':
-          if (context && project) {
-            result = project.descriptionFile || result;
-          }
-          break;
+          return project?.descriptionFile ?? fallback;
+        case 'LONGDESCRIPTION_FILE':
+          return project?.longDescriptionFile ?? fallback;
         case 'GROUPS_PATH':
-          if (context) {
-            result = context.groupsJsonPath || result;
-          }
-          break;
+          // groupsJsonPath can be an empty string, which is a valid state.
+          return context.projectsJsonPath || fallback;
         default:
-            console.warn(`No Value for {{${name}}}`);
+            LoggingService.instance.logWarning(`Could not resolve variable '{{${name}}}'`);
+            return fallback;
     }
-    return result;
   }
 
-  replaceVariablesInScript(scriptLine: string, resolver: (name: string, script: Script) => string, script: Script): string {
-    return scriptLine.replace(/\{\{(\w+)\}\}/g, (_, name) => resolver(name, script));
+  getProject(): Project | undefined {
+    let current: DynamicGroup<Script> | Project | undefined = this.parent;
+    while (current) {
+      if (current instanceof Project) {
+        return current;
+      }
+      // The parent of a script can be a DynamicGroup, so we traverse up
+      // the tree until we find the containing Project.
+      // If not a project, it must be a DynamicGroup<Script>. Its parent must be a Project.
+      if (current.parent instanceof Project) {
+        current = current.parent;
+      } else {
+        // This indicates a configuration error, so we stop.
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
+  private replaceVariablesInScript(scriptLine: string): string {
+    return scriptLine.replace(/\{\{(\w+)\}\}/g, (_, name) => this.resolveVariable(name));
+  }
+
+  private expandScriptCalls(scriptLines: string[], expandedLines: string[] = [], callStack: string[] = []): string[] {
+    for (const line of scriptLines) {
+      const scriptCallMatch = line.match(/\{\{RUN_SCRIPT:([^}]+)\}\}/);
+      if (scriptCallMatch) {
+        const calledScriptName = scriptCallMatch[1].trim();
+
+        // Check for circular dependencies
+        if (callStack.includes(calledScriptName)) {
+          LoggingService.instance.logError(`Circular script call detected: ${callStack.join(' -> ')} -> ${calledScriptName}`);
+          continue; // Skip this call to prevent infinite recursion
+        }
+
+        const project = this.getProject();
+        const calledScript = project?.getAllScripts().find(s => s.name === calledScriptName);
+
+        if (calledScript) {
+          const callerTerminal = this.terminal || '';
+          const calledTerminal = calledScript.terminal || '';
+
+          if (callerTerminal !== calledTerminal) {
+            const message = `Script '${this.name}' (terminal: ${callerTerminal || 'default'}) cannot call script '${calledScriptName}' (terminal: ${calledTerminal || 'default'}). Terminal types must match.`;
+            LoggingService.instance.logError(message);
+            throw new Error('Terminal type mismatch');
+          }
+
+          this.expandScriptCalls(calledScript.script, expandedLines, [...callStack, calledScriptName]);
+        } else {
+          LoggingService.instance.logError(`Script '${calledScriptName}' not found.`);
+        }
+      } else {
+        expandedLines.push(line);
+      }
+    }
+    return expandedLines;
   }
 
   /**
-  * Ensures a terminal with the appropriate shell exists and is visible. If not, it creates a new one.
-  * Then, executes the given script in the terminal (Sends each script line to the terminal for execution).
+  * Resolves variables in the script lines and passes them to the TerminalService for execution.
   */
   execute(): void {
-    const terminalName = (this.terminal === 'powershell') ? 'Scripts Runner - PowerShell' : 'Scripts Runner';
-    let vscodeTerminal: vscode.Terminal | undefined = undefined;
-
-    // Search for an existing terminal with the same name
-    vscodeTerminal = vscode.window.terminals.find(t => t.name === terminalName);
-    // If no existing terminal found, create a new one
-    if (!vscodeTerminal) {
-      const shellPath = this.terminal === 'powershell' ? 'PowerShell.exe' : 'cmd.exe';
-      vscodeTerminal = vscode.window.createTerminal({ name: terminalName, shellPath });
+    try {
+      const expandedScript = this.expandScriptCalls(this.script).map(line => this.replaceVariablesInScript(line));
+      TerminalService.instance.runInTerminal(expandedScript, this.terminal);
+    } catch (e) {
+      if (e instanceof Error && e.message === 'Terminal type mismatch') {
+        LoggingService.instance.logError(`Execution of script '${this.name}' aborted.`);
+      } else {
+        LoggingService.instance.logError(`An unexpected error occurred during script '${this.name}' execution: ${e}`);
+      }
     }
-    vscodeTerminal.show(false);
-
-    this.script.forEach((scriptLine) => {
-      const lineToExecute = this.replaceVariablesInScript(scriptLine, this.resolveVariable, this);
-      vscodeTerminal.sendText(lineToExecute, true);
-    });
   }
 
   setupTreeNode(scriptNode: ProDashNode) {
-    scriptNode.tooltip = this.description ? this.description : this.name;
+    scriptNode.tooltip = this.description || this.name;
  }
 
   getContextValue(): string {

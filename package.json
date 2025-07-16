@@ -3,14 +3,14 @@
   "displayName": "prodash",
   "description": "ProDash - My Project Dashboard and Scripts Runner",
   "icon": "prodash.ico",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "thierry-keus",
   "author": {
-    "name": "Thierry Keus" 
+    "name": "Thierry Keus"
   },
   "pricing": "Free",
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -39,7 +39,7 @@
     "commands": [
       {
         "command": "prodash.editProjectsJson",
-        "title": "Edit Prodash Groups",
+        "title": "Edit Prodash Projects",
         "icon": {
           "light": "media/edit-light.svg",
           "dark": "media/edit-dark.svg"
@@ -82,12 +82,12 @@
       "view/title": [
         {
           "command": "prodash.refreshProjects",
-          "when": "view == prodash.projectsView",    
+          "when": "view == prodash.projectsView",
           "group": "navigation@1"
         },
         {
           "command": "prodash.editProjectsJson",
-          "when": "view == prodash.projectsView"    
+          "when": "view == prodash.projectsView"
         },
         {
           "command": "prodash.editScriptsJson",
@@ -122,7 +122,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
-    "@types/vscode": "^1.100.0",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
     "@vscode/test-cli": "^0.0.10",
@@ -138,5 +138,8 @@
     "type": "git",
     "url": "https://github.com/tkeus/vscode-ext-prodash.git"
   },
-  "homepage": ""
+  "homepage": "",
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  }
 }

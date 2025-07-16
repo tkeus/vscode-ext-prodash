@@ -1,12 +1,13 @@
 import * as vscode from 'vscode';
 import { ExtensionContextService } from './extension-context.service';
 import { ProDashNode } from '../models/prodash-node.model';
+import { LoggingService } from './logging.service';
 
 /**
  * Provides the tree data for the ProDash projects/scripts view.
  * Supplies nodes for project groups, projects, script groups, and scripts.
  */
-export class ProjectsTreeNodesProvider implements vscode.TreeDataProvider<(ProDashNode)> {
+export class ProjectsTreeNodesProvider implements vscode.TreeDataProvider<ProDashNode> {
 
   /**
    * Returns the TreeItem representation for a node.
@@ -37,26 +38,29 @@ export class ProjectsTreeNodesProvider implements vscode.TreeDataProvider<(ProDa
   /**
    * Refreshes the projects tree by re-initializing groups and firing the change event.
    */
-  refreshProjects(): void {
+  refreshProjects(reason?: string): void {
+    if (reason) {
+      LoggingService.instance.logInfo(`Refreshing projects: ${reason}`);
+    } else {
+      LoggingService.instance.logInfo('Refreshing projects (manual trigger)...');
+    }
     ExtensionContextService.instance.initializeProjectGroups();
     this._onDidChangeTreeData.fire();
   }
 
   /**
    * Opens the folder for the given project node.
-   * @param project The project node to open.
+   * @param node The project node to open.
    */
   openFolder(node: ProDashNode): void {
-    this._onDidChangeTreeData.fire(node);
     node.openProjectFolder();
   }
 
   /**
    * Executes the script for the given script node.
-   * @param script The script node to execute.
+   * @param node The script node to execute.
    */
   runScript(node: ProDashNode): void {
-    this._onDidChangeTreeData.fire(node);
     node.execute();
   }
 }
