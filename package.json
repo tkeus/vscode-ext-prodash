@@ -3,7 +3,7 @@
   "displayName": "prodash",
   "description": "ProDash - My Project Dashboard and Scripts Runner",
   "icon": "prodash.ico",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publisher": "thierry-keus",
   "author": {
     "name": "Thierry Keus"
@@ -46,7 +46,7 @@
         }
       },
       {
-        "command": "prodash.refreshProjects",
+        "command": "prodash.refresh",
         "title": "Refresh",
         "icon": {
           "light": "media/refresh-light.svg",
@@ -76,12 +76,22 @@
           "light": "media/folder-light.svg",
           "dark": "media/folder-dark.svg"
         }
+      },
+      {
+        "command": "prodash.resetTemplates",
+        "title": "ProDash: Reset Global Templates",
+        "category": "ProDash"
+      },
+      {
+        "command": "prodash.openGlobalTemplatesFolder",
+        "title": "ProDash: Open Global Templates Folder",
+        "category": "ProDash"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "prodash.refreshProjects",
+          "command": "prodash.refresh",
           "when": "view == prodash.projectsView",
           "group": "navigation@1"
         },
@@ -97,12 +107,12 @@
       "view/item/context": [
         {
           "command": "prodash.runScript",
-          "when": "view == prodash.projectsView && viewItem == Script",
+          "when": "view == prodash.projectsView && viewItem == script",
           "group": "inline"
         },
         {
           "command": "prodash.openFolder",
-          "when": "view == prodash.projectsView && viewItem == Project",
+          "when": "view == prodash.projectsView && viewItem == project",
           "group": "inline"
         }
       ]

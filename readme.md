@@ -25,7 +25,7 @@ ProDash is a Visual Studio Code extension that provides a powerful project dashb
 
 ## Screenshots
 
-![ProDash Screenshot 1](media/screenshot-1.png)
+![Screenshot 1](media/screenshot-1.png)
 
 ---
 
@@ -48,19 +48,22 @@ You can define projects as a flat list. Use the optional `group` property to org
 
 **Example `projects.jsonc`:**
 ```jsonc
-[
-  {
-    "name": "My Main Project",
-    "path": "/path/to/main/project",
-    "description": "The primary project.",
-    "group": "Work Projects"
-  },
-  {
-    "name": "Side Project",
-    "path": "/path/to/side/project",
-    "description": "A personal side project."
-  }
-]
+{  
+  "Work Projects": [
+    {
+      "name": "My Main Project",
+      "path": "/path/to/main/project",
+      "description": "The primary project.",
+    }
+  ],
+  [
+    {
+      "name": "Side Project",
+      "path": "/path/to/side/project",
+      "description": "A personal side project."
+    }
+  ]
+}
 ```
 
 ### 2. Project-Specific Scripts
@@ -69,31 +72,33 @@ For each project, you can define scripts in a `.prodash/scripts.jsonc` file loca
 
 **Example `scripts.jsonc`:**
 ```jsonc
-[
-  {
-    "name": "Start Server",
-    "description": "Lints the code and then starts the development server.",
-    "script": [
-      "echo '--- Starting Server ---'",
-      "{{RUN_SCRIPT:Lint}}", // Calls another script
-      "npm run start"
-     ],
-    "group": "Development"
-  },
-  {
-    "name": "Build",
-    "description": "Creates a production build.",
-    "script": ["npm run build"],
-    "group": "Build"
-  },
-  // This is a hidden utility script.
-  {
-    "name": "Lint",
-    "description": "Runs the linter.",
-    "script": ["npm run lint"],
-    "hidden": true
-  }
-]
+{
+  "Development" : [
+    {
+      "name": "Start Server",
+      "description": "Lints the code and then starts the development server.",
+      "script": [
+        "echo '--- Starting Server ---'",
+        "{{RUN_SCRIPT:Lint}}", // Calls another script
+        "npm run start"
+      ]
+    }
+  ],
+  "Build" : [
+    {
+      "name": "Build",
+      "description": "Creates a production build.",
+      "script": ["npm run build"],
+    }
+  ],
+  "_internal": [ // This is a hidden utility script.
+    {
+      "name": "Lint",
+      "description": "Runs the linter.",
+      "script": ["npm run lint"],
+    }
+  ]
+}
 ```
 
 ---
@@ -104,13 +109,14 @@ For each project, you can define scripts in a `.prodash/scripts.jsonc` file loca
 
 Your scripts can use variables that ProDash resolves at runtime. This is useful for creating generic, reusable scripts.
 
-| Variable               | Description                                           |
-| ---------------------- | ----------------------------------------------------- |
-| `{{PROJECT_PATH}}`     | The absolute path to the project's root folder.       |
-| `{{PRODASH_PATH}}`     | The path to the project's `.prodash` folder.          |
-| `{{DESCRIPTION_FILE}}` | The path to the project's `description.$$$` file.     |
-| `{{LONGDESCRIPTION_FILE}}` | The path to the project's `longdescription.$$$` file. |
-| `{{GROUPS_PATH}}`      | The path to the global `projects.jsonc` file.         |
+| Variable                   | Description                                                         |
+| -------------------------- | ------------------------------------------------------------------- |
+| `{{PROJECT_PATH}}`         | The absolute path to the project's root folder.                     |
+| `{{PRODASH_PATH}}`         | The path to the project's `.prodash` folder.                        |
+| `{{DESCRIPTION_FILE}}`     | The path to the project's `description.$$$` file.                   |
+| `{{LONGDESCRIPTION_FILE}}` | The path to the project's `longdescription.$$$` file.               |
+| `{{FULLDESCRIPTION_FILE}}` | The path to the project's `fulldescription.$$$` file.               |
+| `{{GLOBALCONFIG_PATH}}`    | The path to the folder containing the global `projects.jsonc` file. |
 
 **Example:**
 ```jsonc

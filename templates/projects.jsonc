@@ -1,0 +1,10 @@
+{
+  "_comment": "This is a template for your projects.jsonc file. Add your project groups and projects here.",
+  "My Projects": [
+    {
+      "name": "Example Project",
+      "path": "/path/to/your/project",
+      "description": "An example project entry."
+    }
+  ]
+}

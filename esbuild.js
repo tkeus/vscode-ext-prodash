@@ -5,7 +5,7 @@ const watch = process.argv.includes('--watch');
 
 async function main() {
   const ctx = await esbuild.context({
-    entryPoints: ['src/prodash.ts'],
+    entryPoints: ['src/extension.ts'],
     bundle: true,
     format: 'cjs',
     mainFields: ['module', 'main'], // fix the bundling issue with `jsonc-parser`

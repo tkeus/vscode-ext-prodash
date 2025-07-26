@@ -1,18 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 
 /**
- * Normalizes a file path for comparison:
- * - Converts to lowercase
- * - Replaces backslashes with forward slashes
- * This helps ensure consistent path comparisons across platforms.
- * @param filepath The file path to normalize
- * @returns The normalized path string
+ * Normalizes a file path by replacing backslashes with forward slashes for consistent glob patterns.
+ * @param path The file path to normalize.
+ * @returns The normalized path.
  */
-export function normalizePathForCompare(filepath: string) {
-   return filepath.toLowerCase().replaceAll('\\', '/');
+export function normalizePath(path: string): string {
+  return path.toLowerCase().replace(/\\/g, '/');
 }
-      
+
 /**
  * Checks if parentPath is the same as or a parent directory of childPath.
  * Useful for determining project/workspace relationships.
@@ -21,8 +19,8 @@ export function normalizePathForCompare(filepath: string) {
  * @returns True if parentPath is the same as or a parent of childPath
  */
 export function isParentPathOf(parentPath: string, childPath: string): boolean {
-  const parent = normalizePathForCompare(parentPath).replace(/\/+$/, ''); // remove trailing slash
-  const child = normalizePathForCompare(childPath).replace(/\/+$/, '');
+  const parent = normalizePath(parentPath).replace(/\/+$/, ''); // remove trailing slash
+  const child = normalizePath(childPath).replace(/\/+$/, '');
   return (parent === child) || child.startsWith(parent + '/');
 }
 
@@ -76,14 +74,27 @@ export function createTextFileIfNotExist(filePath: string, fileContents: string)
  * @param filePath The path to the file to read
  * @returns The trimmed file contents, or an empty string if not found or on error
  */
-export function readFileContents(filePath: string): string { 
+export function readFileContents(filePath: string): string {
   let fileContents = '';
   if (filePath && fs.existsSync(filePath)) {
     try {
       fileContents = fs.readFileSync(filePath, 'utf8').trim();
-    } catch (e) { 
+    } catch (e) {
       // Ignore errors
     }
   }
   return fileContents;
+}
+
+/**
+ * Opens the given file in a VS Code text editor if it exists, otherwise shows a warning.
+ * 
+ * @param filePath The path to the file to open
+ */
+export function showTextFileEditor(filePath: string | undefined): void {
+  if (filePath && fs.existsSync(filePath)) {
+    vscode.window.showTextDocument(vscode.Uri.file(filePath));
+  } else {
+    vscode.window.showWarningMessage(`file <${filePath}> not found.`);
+  }
 }

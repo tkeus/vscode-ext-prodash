@@ -1,0 +1,25 @@
+{
+  "_Information": [
+    {
+      "name": "Information",
+      "description": "Update description file from git and package.json",
+      "terminal": "powershell",
+      "script": [
+        "cd {{PROJECT_PATH}}",
+        "node ./.prodash/update-info.js '{{DESCRIPTION_FILE}}' '{{LONGDESCRIPTION_FILE}}'"
+      ],
+      "event": "ON_ACTIVATE"
+    }
+  ],
+  "Build Tools": [
+    {
+      "name": "Lint",
+      "description": "Run the linter.",
+      "terminal": "powershell",
+      "script": [
+        "cd {{PROJECT_PATH}}",
+        "npm run lint"
+      ]
+    }
+  ]
+}
